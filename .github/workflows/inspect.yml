@@ -10,10 +10,6 @@ on:
         description: 'Direct link to a Telegram APK (empty = the official telegram.org download)'
         required: false
         type: string
-      resource_names:
-        description: 'String resource names to search for (comma separated, empty = the side-menu labels)'
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -24,7 +20,6 @@ jobs:
     timeout-minutes: 20
     env:
       APK_URL: ${{ inputs.apk_url }}
-      RES_NAMES: ${{ inputs.resource_names }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +32,7 @@ jobs:
           ls -lh telegram.apk
 
       - name: Inspect
-        run: bash .github/scripts/inspect_apk.sh telegram.apk "$PWD/telegram-inspect.txt" ${RES_NAMES:+"$RES_NAMES"}
+        run: bash .github/scripts/inspect_apk.sh telegram.apk "$PWD/telegram-inspect.txt"
 
       - name: Summary
         run: |
