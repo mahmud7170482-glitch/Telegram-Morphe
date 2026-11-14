@@ -1,0 +1,52 @@
+name: Inspect Telegram APK (read-only)
+
+# Downloads the official Telegram APK and lists the classes, members and code I need to hook into.
+# It builds nothing and changes nothing. The result is the "telegram-inspect" artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'Direct link to a Telegram APK (empty = the official telegram.org download)'
+        required: false
+        type: string
+      patterns:
+        description: 'Class names to look up, comma separated'
+        required: false
+        default: 'DrawerLayoutAdapter,DrawerUserCell,DrawerAddCell,DrawerProfileCell'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APK_URL: ${{ inputs.apk_url }}
+      PATTERNS: ${{ inputs.patterns || 'DrawerLayoutAdapter,DrawerUserCell,DrawerAddCell,DrawerProfileCell' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Telegram
+        run: |
+          URL="${APK_URL:-https://telegram.org/dl/android/apk}"
+          echo "Downloading $URL"
+          curl -fL --retry 3 --retry-delay 5 -A "Mozilla/5.0" -o telegram.apk "$URL"
+          ls -lh telegram.apk
+
+      - name: Inspect
+        run: bash .github/scripts/inspect_apk.sh telegram.apk "$PWD/telegram-inspect.txt" "$PATTERNS"
+
+      - name: Summary
+        run: |
+          ls -l telegram-inspect.txt
+          grep -n "^########## " telegram-inspect.txt | head -n 40
+
+      - name: Upload the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-inspect
+          path: telegram-inspect.txt
+          if-no-files-found: error
