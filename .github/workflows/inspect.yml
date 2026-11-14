@@ -1,6 +1,7 @@
 name: Inspect Telegram APK (read-only)
 
-# Downloads the official Telegram APK and lists the classes, members and code I need to hook into.
+# Downloads the official Telegram APK and lists the code I need to hook into (found through its strings,
+# because Telegram 13.x scrambles its class names).
 # It builds nothing and changes nothing. The result is the "telegram-inspect" artifact.
 on:
   workflow_dispatch:
@@ -9,10 +10,9 @@ on:
         description: 'Direct link to a Telegram APK (empty = the official telegram.org download)'
         required: false
         type: string
-      patterns:
-        description: 'Class names to look up, comma separated'
+      resource_names:
+        description: 'String resource names to search for (comma separated, empty = the side-menu labels)'
         required: false
-        default: 'DrawerLayoutAdapter,DrawerUserCell,DrawerAddCell,DrawerProfileCell'
         type: string
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 20
     env:
       APK_URL: ${{ inputs.apk_url }}
-      PATTERNS: ${{ inputs.patterns || 'DrawerLayoutAdapter,DrawerUserCell,DrawerAddCell,DrawerProfileCell' }}
+      RES_NAMES: ${{ inputs.resource_names }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           ls -lh telegram.apk
 
       - name: Inspect
-        run: bash .github/scripts/inspect_apk.sh telegram.apk "$PWD/telegram-inspect.txt" "$PATTERNS"
+        run: bash .github/scripts/inspect_apk.sh telegram.apk "$PWD/telegram-inspect.txt" ${RES_NAMES:+"$RES_NAMES"}
 
       - name: Summary
         run: |
