@@ -1,7 +1,6 @@
 package app.morphe.extension.all.telegram;
 
 import android.app.Activity;
-import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -23,9 +22,8 @@ import java.util.Set;
 
 /**
  * "Vault": a second launcher icon that is protected by its own PIN.
- * From here you hide or unhide Telegram accounts and open a hidden one.
- * Hidden accounts disappear from Telegram's side menu (see HiddenAccounts).
- * The screen locks as soon as you leave it.
+ * From here you hide or unhide Telegram accounts (they disappear from the side menu, see HiddenAccounts)
+ * and set up the Telegram lock. The screen locks as soon as you leave it.
  */
 public class VaultActivity extends Activity {
     private static final int BG = Color.rgb(18, 18, 18);
@@ -71,19 +69,17 @@ public class VaultActivity extends Activity {
         if (root == null) return;
         root.removeAllViews();
         title("Vault");
-        if (!TelegramBridge.isTelegram()) {
-            body("This screen only works inside the patched Telegram app.");
-        } else if (!VaultStore.isPinSet(this)) {
+        if (!VaultStore.isPinSet(this)) {
             showSetPin();
         } else if (!unlocked) {
             showEnterPin();
         } else {
-            showAccounts();
+            showMain();
         }
     }
 
     private void showSetPin() {
-        body("Choose a PIN (4 to 12 digits). It protects your hidden accounts. If you forget it, clear the app's data (this also logs out every account).");
+        body("Choose a PIN (4 to 12 digits). It protects your hidden accounts and the Telegram lock. If you forget it, clear the app's data (this also logs out every account).");
         final EditText pin = pinField("New PIN");
         final EditText again = pinField("Repeat PIN");
         root.addView(pin);
@@ -125,23 +121,64 @@ public class VaultActivity extends Activity {
         }));
     }
 
-    private void showAccounts() {
-        body("Hidden accounts are removed from Telegram's side menu. Open one from here. "
-                + "Notifications from a hidden account still appear, so mute it in Telegram if you need silence.");
+    private void showMain() {
+        section("Accounts");
+        java.util.List<Integer> known = VaultStore.known(this);
         Set<Integer> hidden = VaultStore.hidden(this);
-        int shown = 0;
-        for (int a = 0; a < TelegramBridge.maxAccounts(); a++) {
-            if (!TelegramBridge.isActivated(a)) continue;
-            shown++;
-            addAccountRow(a, hidden.contains(a));
+        if (known.isEmpty()) {
+            body("No accounts seen yet. Open Telegram once and wait a moment, then come back here.");
+        } else {
+            body("Hide an account, then open Telegram's side menu to see which one disappeared. Don't hide the account you are using right now. Notifications of a hidden account still appear.");
+            for (int id : known) {
+                addAccountRow(id, hidden.contains(id));
+            }
+            if (!hidden.isEmpty()) {
+                if (HiddenAccounts.isRevealActive()) {
+                    root.addView(button("Hide them again now", v -> {
+                        HiddenAccounts.hideAgain();
+                        render();
+                    }));
+                } else {
+                    root.addView(button("Show hidden accounts for 5 minutes", v -> {
+                        HiddenAccounts.revealFor(5);
+                        toast("Open Telegram: the accounts are back for 5 minutes");
+                        render();
+                    }));
+                }
+            }
         }
-        if (shown == 0) {
-            body("No logged-in accounts found.");
-        }
-        root.addView(button("Lock now", v -> {
+
+        section("Lock Telegram");
+        final boolean lockOn = VaultStore.isLockEnabled(this);
+        body("Asks for this PIN when Telegram opens, and after it has been in the background for the time below.");
+        root.addView(button(lockOn ? "Lock is ON (tap to turn off)" : "Lock is OFF (tap to turn on)", v -> {
+            VaultStore.setLockEnabled(this, !lockOn);
+            render();
+        }));
+        root.addView(button("Lock after: " + describe(VaultStore.lockAfterSeconds(this)) + " (tap to change)", v -> {
+            VaultStore.setLockAfterSeconds(this, nextDelay(VaultStore.lockAfterSeconds(this)));
+            render();
+        }));
+
+        root.addView(button("Lock the Vault now", v -> {
             unlocked = false;
             render();
         }));
+    }
+
+    private static final int[] DELAYS = {0, 30, 60, 300, 900};
+
+    private static int nextDelay(int current) {
+        for (int i = 0; i < DELAYS.length; i++) {
+            if (DELAYS[i] == current) return DELAYS[(i + 1) % DELAYS.length];
+        }
+        return DELAYS[0];
+    }
+
+    private static String describe(int seconds) {
+        if (seconds <= 0) return "every time";
+        if (seconds < 60) return seconds + " seconds";
+        return (seconds / 60) + (seconds == 60 ? " minute" : " minutes");
     }
 
     private void addAccountRow(final int account, final boolean isHidden) {
@@ -153,7 +190,7 @@ public class VaultActivity extends Activity {
         lp.setMargins(0, dp(8), 0, dp(4));
 
         TextView name = new TextView(this);
-        name.setText(TelegramBridge.label(account));
+        name.setText("Account " + (account + 1));
         name.setTextColor(TEXT);
         name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         card.addView(name);
@@ -164,11 +201,7 @@ public class VaultActivity extends Activity {
         state.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         card.addView(state);
 
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(button(isHidden ? "Unhide" : "Hide", v -> toggleHidden(account, isHidden)));
-        buttons.addView(button("Open", v -> openAccount(account)));
-        card.addView(buttons);
+        card.addView(button(isHidden ? "Unhide" : "Hide", v -> toggleHidden(account, isHidden)));
         root.addView(card, lp);
     }
 
@@ -176,14 +209,10 @@ public class VaultActivity extends Activity {
 
     private void toggleHidden(int account, boolean currentlyHidden) {
         if (!currentlyHidden) {
-            if (account == TelegramBridge.selectedAccount()) {
-                toast("Switch Telegram to another account first, then hide this one");
-                return;
-            }
             int visible = 0;
             Set<Integer> hidden = VaultStore.hidden(this);
-            for (int a = 0; a < TelegramBridge.maxAccounts(); a++) {
-                if (TelegramBridge.isActivated(a) && !hidden.contains(a)) visible++;
+            for (int a : VaultStore.known(this)) {
+                if (!hidden.contains(a)) visible++;
             }
             if (visible <= 1) {
                 toast("Keep at least one visible account");
@@ -192,27 +221,6 @@ public class VaultActivity extends Activity {
         }
         VaultStore.setHidden(this, account, !currentlyHidden);
         render();
-    }
-
-    private void openAccount(final int account) {
-        try {
-            Object running = TelegramBridge.launchActivityInstance();
-            if (running != null && account != TelegramBridge.selectedAccount()) {
-                if (!TelegramBridge.switchRunningTelegram(running, account)) {
-                    toast("Close Telegram completely, then tap Open again");
-                    return;
-                }
-            } else if (running == null) {
-                TelegramBridge.rememberSelected(account);
-            }
-            Intent launch = new Intent();
-            launch.setClassName(getPackageName(), "org.telegram.ui.LaunchActivity");
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(launch);
-            unlocked = false;
-        } catch (Throwable t) {
-            toast("Could not open that account");
-        }
     }
 
     // ---------------------------------------------------------------- small UI helpers
@@ -235,6 +243,15 @@ public class VaultActivity extends Activity {
         t.setTextColor(TEXT);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
         t.setGravity(Gravity.START);
+        root.addView(t);
+    }
+
+    private void section(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextColor(TEXT);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        t.setPadding(0, dp(20), 0, 0);
         root.addView(t);
     }
 

@@ -23,6 +23,9 @@ final class VaultStore {
     private static final String KEY_HIDDEN = "hidden";
     private static final String KEY_FAILS = "fails";
     private static final String KEY_LOCKED_UNTIL = "locked_until";
+    private static final String KEY_KNOWN = "known";
+    private static final String KEY_LOCK_ON = "lock_on";
+    private static final String KEY_LOCK_AFTER = "lock_after_s";
     private static final int ITERATIONS = 60_000;
     private static final int MAX_FREE_ATTEMPTS = 5;
     private static final long LOCKOUT_MILLIS = 30_000L;
@@ -114,5 +117,55 @@ final class VaultStore {
             sb.append(a);
         }
         prefs(context).edit().putString(KEY_HIDDEN, sb.toString()).commit();
+    }
+
+    // ------------------------------------------------------------------ accounts the Vault has seen
+
+    /** Account numbers that the side menu listed the last time it was looked at (in menu order). */
+    static java.util.List<Integer> known(Context context) {
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        for (String part : prefs(context).getString(KEY_KNOWN, "").split(",")) {
+            part = part.trim();
+            if (!part.isEmpty()) {
+                try {
+                    out.add(Integer.parseInt(part));
+                } catch (NumberFormatException ignored) {
+                    // skip garbage
+                }
+            }
+        }
+        return out;
+    }
+
+    static void setKnown(Context context, java.util.List<Integer> ids) {
+        StringBuilder sb = new StringBuilder();
+        for (int a : ids) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(a);
+        }
+        String value = sb.toString();
+        SharedPreferences p = prefs(context);
+        if (!value.equals(p.getString(KEY_KNOWN, ""))) {
+            p.edit().putString(KEY_KNOWN, value).commit();
+        }
+    }
+
+    // ------------------------------------------------------------------ app lock settings
+
+    static boolean isLockEnabled(Context context) {
+        return prefs(context).getInt(KEY_LOCK_ON, 0) == 1 && isPinSet(context);
+    }
+
+    static void setLockEnabled(Context context, boolean on) {
+        prefs(context).edit().putInt(KEY_LOCK_ON, on ? 1 : 0).commit();
+    }
+
+    /** Seconds Telegram may stay in the background before it asks for the PIN again (0 = ask every time). */
+    static int lockAfterSeconds(Context context) {
+        return prefs(context).getInt(KEY_LOCK_AFTER, 60);
+    }
+
+    static void setLockAfterSeconds(Context context, int seconds) {
+        prefs(context).edit().putInt(KEY_LOCK_AFTER, seconds).commit();
     }
 }
