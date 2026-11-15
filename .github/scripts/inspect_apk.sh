@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Read-only look inside an APK whose names are scrambled (Telegram 13.x).
-# It finds the side-menu method by what the code DOES (clear a list, add Integer.valueOf, Collections.sort ...)
-# and lists the string constants of the settings class found through the string "userconfing".
+# Read-only check: did Telegram keep the real names of the standard list library (androidx.recyclerview) and of its
+# own RecyclerListView? If yes, an extension can watch the side menu through those names.
 # Usage: inspect_apk.sh APK OUT_FILE
 set -u
 APK="${1:?apk}"; OUT="${2:?out}"
@@ -17,14 +16,33 @@ section() { printf '\n\n########## %s ##########\n' "$1" >> "$OUT"; }
 section "APK"
 "$BT/aapt" dump badging "$APK" 2>/dev/null | grep -E "^package:|^sdkVersion|^targetSdkVersion" | cut -c1-120 >> "$OUT"
 
-for f in dex/classes*.dex; do
-  "$DEXDUMP" -f "$f" > "$f.f.txt" 2>/dev/null
-  "$DEXDUMP" -d "$f" > "$f.d.txt" 2>/dev/null
-done
+for f in dex/classes*.dex; do "$DEXDUMP" -f "$f" > "$f.f.txt" 2>/dev/null; done
 
-section "SIDE-MENU ADAPTER (found through the fields of LaunchActivity)"
-python3 "$(dirname "$0")/inspect_adapter.py" dex "$PWD/dex/adapter.txt"
-head -c 150000 dex/adapter.txt >> "$OUT"
+section "androidx classes that exist (count by package, then the recyclerview ones)"
+cat dex/*.f.txt | grep "Class descriptor" | grep "'Landroidx/" | sed -E "s/.*'L(androidx\/[a-z0-9]+\/[a-z0-9]*).*/\1/" | sort | uniq -c | sort -rn | head -n 25 >> "$OUT"
+say "--- androidx/recyclerview classes:"
+cat dex/*.f.txt | grep "Class descriptor" | grep "'Landroidx/recyclerview/" | sed -E "s/.*'(L[^']+;)'.*/\1/" | head -n 60 >> "$OUT"
+
+# members of the interesting classes (names only)
+show_members() {
+  local desc="$1"
+  section "MEMBERS OF $desc"
+  local found=0
+  for f in dex/classes*.dex.f.txt; do
+    awk -v d="'$desc'" '/Class #/{p=0} index($0,"Class descriptor") && index($0,d){p=1} p{print}' "$f" \
+      | grep -E "Class descriptor|Superclass|Interfaces|name +:|type +:" | paste -sd' ' | sed -E "s/ +name +: /\n  /g; s/ +type +: / :: /g; s/ +/ /g" | head -n 260 >> "$OUT"
+    found=1
+  done
+  [ "$found" = 0 ] && say "(not found)"
+}
+show_members "Landroidx/recyclerview/widget/RecyclerView;"
+show_members "Landroidx/recyclerview/widget/RecyclerView\$Adapter;"
+show_members "Landroidx/recyclerview/widget/RecyclerView\$AdapterDataObserver;"
+show_members "Lorg/telegram/ui/Components/RecyclerListView;"
+show_members "Lorg/telegram/ui/Adapters/DrawerLayoutAdapter;"
+
+section "classes whose names contain 'Drawer' or 'SideMenu'"
+cat dex/*.f.txt | grep "Class descriptor" | grep -iE "Drawer|SideMenu" | sed -E "s/.*'(L[^']+;)'.*/\1/" | head -n 40 >> "$OUT"
 
 section "END"
 say "size: $(wc -c < "$OUT") bytes"
