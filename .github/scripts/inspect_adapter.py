@@ -83,23 +83,28 @@ def shape(desc):
         "types": types,
     }
 
-w("\n==== field types of LaunchActivity that look like an adapter (Context + 2 or more ArrayList + boolean) ====")
-adapters = []
+w("\n==== ALL object field types of LaunchActivity (type | super | #fields | Context | ArrayList | boolean | List | #methods) ====")
+rows = []
 for t in sorted(la_types):
     s = shape(t)
-    if s and s["ctx"] >= 1 and s["arrays"] >= 2 and s["bools"] >= 1:
-        adapters.append(t)
-        w(f"{t}  super={classes[t]['super']}  fields={s['n']} ctx={s['ctx']} arrays={s['arrays']} bools={s['bools']}")
-        w("    field types: " + " ".join(s["types"]))
-if not adapters:
-    w("(none; showing classes with a Context and an ArrayList instead)")
-    for t in sorted(la_types):
-        s = shape(t)
-        if s and s["ctx"] >= 1 and s["arrays"] >= 1:
-            adapters.append(t)
-            w(f"{t}  super={classes[t]['super']}  fields={s['n']} ctx={s['ctx']} arrays={s['arrays']} bools={s['bools']}")
+    if not s:
+        w(f"{t} | (class not in the dex files: library or framework)")
+        continue
+    c = classes[t]
+    lists = sum(1 for x in s["types"] if x in ("Ljava/util/List;", "Ljava/util/LinkedList;", "Ljava/util/Collection;"))
+    rows.append((t, s, lists))
+    w(f"{t} | {c['super']} | {s['n']} | ctx={s['ctx']} | arrays={s['arrays']} | bools={s['bools']} | lists={lists} | methods={len(c['methods'])}")
 
-adapters = adapters[:5]
+# adapter-like: at least two ArrayLists and a boolean (a Context is NOT required: R8 may have removed it)
+adapters = [t for (t, s, lists) in sorted(rows, key=lambda r: r[1]["n"]) if s["arrays"] >= 2 and s["bools"] >= 1]
+if not adapters:
+    adapters = [t for (t, s, lists) in sorted(rows, key=lambda r: r[1]["n"]) if s["arrays"] + lists >= 1]
+w("\n==== classes looked at in detail: " + ", ".join(adapters[:6]) + " ====")
+for t in adapters[:6]:
+    s = shape(t)
+    w(f"{t}  super={classes[t]['super']}  field types: " + " ".join(s["types"]))
+
+adapters = adapters[:6]
 for t in adapters:
     w(f"\n==== methods of {t} (name proto) ====")
     for (n, p) in classes[t]["methods"][:150]:
@@ -113,7 +118,7 @@ for path in sorted(glob.glob(f"{DEX_DIR}/classes*.dex.d.txt")):
     buf, cls, name, proto = [], None, None, None
     def flush():
         global buf
-        if cls in targets and name and proto and any("Ljava/util/ArrayList;.clear:" in l for l in buf) and shown[cls] < 4:
+        if cls in targets and name and proto and any(("Ljava/util/ArrayList;.clear:" in l or "Ljava/util/List;.clear:" in l) for l in buf) and shown[cls] < 4:
             shown[cls] += 1
             w(f"\n=== {cls}->{name}{proto}")
             for l in buf[:260]:
