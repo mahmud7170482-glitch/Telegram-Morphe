@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 20
     env:
       APK_URL: ${{ inputs.apk_url }}
+      TELEGRAM_API_ID: "7364661"
+      TELEGRAM_API_HASH: "ab21aac37744a17639e3736903fb46ae"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,3 +47,4 @@ jobs:
           name: telegram-inspect
           path: telegram-inspect.txt
           if-no-files-found: error
+          
